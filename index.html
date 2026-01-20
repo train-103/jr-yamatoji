@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>大和路線列車走行位置(JR難波～加茂)</title>
+
+<style>
+  body {
+    background-color: #5A9FE0;
+    margin: 0;
+    font-family: monospace;
+    overflow: hidden;
+  }
+
+  #time {
+    position: fixed;
+    top: 8px;
+    left: 8px;
+    color: white;
+    font-size: 14px;
+    z-index: 10;
+  }
+
+  #scroll-container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-behavior: smooth;
+  }
+
+  canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: block;
+  }
+</style>
+</head>
+
+<body>
+<div id="time"></div>
+
+<div id="scroll-container">
+  <canvas id="bg"></canvas>
+  <canvas id="panel"></canvas>
+</div>
+
+<script>
+let lastTrains = [];
+let fetching = false;
+
+// ===============================
+// 駅データ
+// ===============================
+const stations = [
+  {code: "3002", name: "JR難波", x: 450},
+  {code: "2508", name: "今宮", x: 1050},
+  {code: "2509", name: "新今宮", x: 1650},
+  {code: "2510", name: "天王寺", x: 2250},
+  {code: "3003", name: "東部市場前", x: 2850},
+  {code: "3005", name: "平野", x: 3450},
+  {code: "3008", name: "加美", x: 4050},
+  {code: "3009", name: "久宝寺", x: 4650},
+  {code: "3010", name: "八尾", x: 5250},
+  {code: "3011", name: "志紀", x: 5850},
+  {code: "3012", name: "柏原", x: 6450},
+  {code: "3013", name: "高井田", x: 7050},
+  {code: "3014", name: "河内堅上", x: 7650},
+  {code: "3015", name: "三郷", x: 8250},
+  {code: "3016", name: "王寺", x: 8850},
+  {code: "3017", name: "法隆寺", x: 9450},
+  {code: "3018", name: "大和小泉", x: 10050},
+  {code: "3019", name: "郡山", x: 10650},
+  {code: "3020", name: "奈良", x: 11250},
+  {code: "3022", name: "平城山", x: 11850},
+　{code: "3023", name: "木津", x: 12450},
+  {code: "3024", name: "加茂", x: 13050},
+　{code: "3025", name: "笠置", x: 13650},
+];
+
+const TRACK_MARGIN = 500;
+
+// ★ 複線仕様（旧 up2 / down1）
+const TRACK_Y = {
+  up: 240,
+  down: 420
+};
+
+const bg = document.getElementById("bg");
+const bgCtx = bg.getContext("2d");
+
+const canvas = document.getElementById("panel");
+const ctx = canvas.getContext("2d");
+
+const trackStartX = Math.min(...stations.map(s => s.x)) - TRACK_MARGIN;
+const trackEndX   = Math.max(...stations.map(s => s.x)) + TRACK_MARGIN;
+
+bg.width = canvas.width = trackEndX;
+bg.height = canvas.height = 800;
+
+// ===============================
+// 背景描画
+// ===============================
+function drawTrack(c) {
+  c.strokeStyle = "white";
+  c.lineWidth = 2;
+
+  Object.values(TRACK_Y).forEach(y => {
+    c.beginPath();
+    c.moveTo(trackStartX, y);
+    c.lineTo(trackEndX, y);
+    c.stroke();
+  });
+}
+
+function drawStations(c) {
+  c.font = "14px monospace";
+
+  stations.forEach(st => {
+    c.fillStyle = "white";
+    c.fillRect(st.x - 2, TRACK_Y.up - 2, 4, 4);
+    c.fillRect(st.x - 2, TRACK_Y.down - 2, 4, 4);
+
+    drawStationLabel(st, 80, true, c);
+    drawStationLabel(st, 620, false, c);
+  });
+}
+
+function drawBackground() {
+  bgCtx.clearRect(0, 0, bg.width, bg.height);
+  drawTrack(bgCtx);
+  drawStations(bgCtx);
+}
+
+const stationHitAreas = [];
+
+function drawStationLabel(st, y, clickable, c) {
+  const text = st.name;
+  const w = c.measureText(text).width + 14;
+  const h = 22;
+  const x = st.x - w / 2;
+
+  c.fillStyle = "white";
+  c.fillRect(x, y - h / 2, w, h);
+  c.strokeStyle = "#333";
+  c.strokeRect(x, y - h / 2, w, h);
+
+  c.fillStyle = "black";
+  c.textAlign = "center";
+  c.textBaseline = "middle";
+  c.fillText(text, st.x, y);
+
+  if (clickable) {
+    stationHitAreas.push({ x, y: y - h / 2, w, h, cx: st.x });
+  }
+}
+// ★ スクロール位置を保存（手動更新対策）
+const scrollContainer = document.getElementById("scroll-container");
+
+scrollContainer.addEventListener("scroll", () => {
+  localStorage.setItem("scrollLeft", scrollContainer.scrollLeft);
+});
+
+
+// ===============================
+// データ取得
+// ===============================
+
+
+async function fetchTrainData() {
+  if (fetching) return lastTrains;
+  fetching = true;
+
+  try {
+    const res = await fetch(
+      "https://yamatoji.hayato-110802.workers.dev/",
+      { cache: "no-store" }
+    );
+    const data = await res.json();
+    lastTrains = data.trains || lastTrains;
+  } catch {
+    console.warn("fetch失敗：前回データ使用");
+  } finally {
+    fetching = false;
+  }
+  return lastTrains;
+}
+
+// ===============================
+// サンダーバード、ひだ判定
+// ===============================
+function isSpecialLtdExp(train) {
+  const name = String(train.nickname || "");
+  return (
+    name.includes("サンダーバード") ||
+    name.includes("ひだ")
+  );
+}
+
+// ===============================
+// 区間別ルール判定
+// ===============================
+function isThunderbirdEquivalent(train, from, to, sourceApi) {
+  const suffix = getNoSuffix(train);
+
+  // --- JR難波(3002)～奈良(3020)
+  if (isBetween(from, to, "3002", "3020")) {
+
+    // 例外：nickname まほろば → 通常
+    if (train.nickname === "まほろば") return false;
+
+    // 例外：特定列番 → 通常
+    if (["5548M", "5854C"].includes(train.no)) return false;
+
+    // 例外：API
+    if (sourceApi === "yamatojiosakahigashi") return false;
+
+    // K/Y がなければ TB 相当
+    return !suffix.includes("K") && !suffix.includes("Y");
+  }
+
+  // --- 奈良(3020)～笠置(3025)
+  if (isBetween(from, to, "3020", "3025")) {
+
+    // ※ nickname 条件は存在しない（今回の修正点）
+
+    // K/Y/M/D がなければ TB 相当
+    return !(
+      suffix.includes("K") ||
+      suffix.includes("Y") ||
+      suffix.includes("M") ||
+      suffix.includes("D")
+    );
+  }
+
+  // その他区間 → false（通常）
+  return false;
+}
+
+// ===============================
+// 列番最終数字取得
+// ===============================
+function getLastDigit(train) {
+  const m = String(train.no || "").match(/(\d)(?!.*\d)/);
+  return m ? Number(m[1]) : null;
+}
+
+// ===============================
+// 列番アルファベット取得
+// ===============================
+function getNoSuffix(train) {
+  const m = String(train.no || "").match(/[A-Z]+$/);
+  return m ? m[0] : "";
+}
+
+
+// ===============================
+// 線路判定（複線・方向のみ）
+// ===============================
+function getLastDigit(train) {
+  const m = String(train.no || "").match(/(\d)(?!.*\d)/);
+  return m ? Number(m[1]) : null;
+}
+  
+// ===============================
+// 普通列車判定
+// ===============================
+function isLocalTrain(train) {
+  const type = train.displayType || "";
+  return type.includes("普通");
+}
+
+// ===============================
+// 駅コード区間判定
+// ===============================
+function isBetween(from, to, a, b) {
+  return (from === a && to === b) || (from === b && to === a);
+}
+
+function getTrackKey(train) {
+  const last = getLastDigit(train);
+  if (last === null) return "up";
+
+  // ★ 区間別サンダーバード相当判定
+  if (isThunderbirdEquivalent(train, train.pos.split("_")[0], train.pos.split("_")[1], train.sourceApi)) {
+    return (last % 2 === 1) ? "down" : "up";
+  }
+
+  // ★ サンダーバード・ひだ
+  if (isSpecialLtdExp(train)) {
+    return (last % 2 === 1) ? "down" : "up";
+  }
+
+  // ★ 通常ルール
+  return (last % 2 === 1) ? "up" : "down";
+}
+// ===============================
+// 停滞管理（localStorage）
+// ===============================
+const stayMap = JSON.parse(localStorage.getItem("stayMap") || "{}");
+const crossMap = JSON.parse(localStorage.getItem("crossMap") || "{}");
+
+const redBandMap = JSON.parse(
+  localStorage.getItem("redBandMap") || "{}"
+);
+  
+function updateStay(trainKey, x, isStation) {
+  const now = Date.now();
+  const s = stayMap[trainKey] || { x, t: now, station: isStation };
+
+  if (Math.abs(s.x - x) < 5 && s.station === isStation) {
+    // 継続
+  } else {
+    s.x = x;
+    s.t = now;
+    s.station = isStation;
+  }
+
+  stayMap[trainKey] = s;
+  localStorage.setItem("stayMap", JSON.stringify(stayMap));
+  return now - s.t;
+}
+
+// ===============================
+// 両数 → 丸数字（①〜⑭）変換
+// ===============================
+function carsToCircle(num) {
+  const circles = [
+    "", "①","②","③","④","⑤","⑥","⑦",
+    "⑧","⑨","⑩","⑪","⑫","⑬","⑭"
+  ];
+  return circles[num] || "";
+}
+// ===============================
+// 列車描画
+// ===============================
+function drawTrains(trains) {
+  const used = {};
+  ctx.font = "12px monospace";
+
+  trains.forEach(train => {
+    const [from, toRaw] = train.pos.split("_");
+  // ★ 停車中判定（今回の修正ポイント）
+const isStationary = (toRaw === "####");
+// ★ 描画用の to（駅間計算用）
+const to = isStationary ? from : toRaw;
+    
+    const s1 = stations.find(s => s.code === from);
+    const s2 = stations.find(s => s.code === to);
+    if (!s1 || !s2) return;
+
+    const trackKey = getTrackKey(train);
+    const baseY = TRACK_Y[trackKey];
+
+    const i1 = stations.indexOf(s1);
+    const i2 = stations.indexOf(s2);
+
+    let ratio = 0;
+    if (i1 !== i2) {
+      const num = parseInt(train.no.match(/\d+/)?.[0] || 0, 10);
+      ratio = (num % 2 === 0) ? 1/3 : 2/3;
+    }
+
+    const x = s1.x + (s2.x - s1.x) * ratio;
+
+    const sectionKey = `${Math.min(i1,i2)}-${Math.max(i1,i2)}`;
+    const slot = `${trackKey}_${sectionKey}`;
+
+    const y = baseY + (used[slot] || 0) * 28;
+    used[slot] = (used[slot] || 0) + 1;
+
+    const type = train.displayType || "";
+    let bg = "#FFFF66";
+    if (type.includes("特急")) bg = "#9A4A4A";
+    else if (type.includes("新快速")) bg = "#3399FF";
+    else if (type.includes("快速")) bg = "#FFA500";
+    else if (type.includes("普通")) bg = "#6EDC3A";
+
+    const noColor =
+      (type.includes("特急") || type.includes("新快速")) ? "white" : "black";
+
+    const delay = train.delayMinutes || 0;
+    const delayText = delay > 0 ? String(delay) : "";
+
+    const noText = train.no;
+
+// ★ 両数取得（numberOfCars）
+const cars = Number(train.numberOfCars) || 0;
+const carsText = carsToCircle(cars);
+
+// ★ 行き先＋両数（⑧など）を合成
+const infoText = ` ${type} ${train.dest.text}${carsText}`;
+
+    const noW = ctx.measureText(noText).width + 10;
+    const infoW = ctx.measureText(infoText).width + 10;
+    const delayW = delayText ? ctx.measureText(delayText).width + 8 : 0;
+    const h = 22;
+    const totalW = noW + infoW + delayW;
+    const leftX = x - totalW / 2;
+
+    const trainKey = train.no + "_" + train.pos;
+const stayMs = updateStay(trainKey, x, isStationary);
+// ★ 追加：駅中心からの距離判定（複合判定用）
+const stationX = s1.x;
+const distFromStation = Math.abs(x - stationX);
+const STATION_STOP_RADIUS = 6; // px
+const isNearStationCenter = distFromStation <= STATION_STOP_RADIUS;
+    
+if (stayMs >= 600000) {
+  crossMap[trainKey] = true;
+  localStorage.setItem("crossMap", JSON.stringify(crossMap));
+}
+
+    // 赤帯関連
+const isLocal = isLocalTrain(train);
+let showRedBand = false;
+
+// ===============================
+// 普通：駅中心に停車していれば即赤帯
+// ===============================
+if (isLocal && isStationary && isNearStationCenter) {
+  showRedBand = true;
+}
+
+// ===============================
+// 普通以外：交互45秒判定（駅中心限定）
+// ===============================
+if (!isLocal && isStationary && isNearStationCenter) {
+  const r = redBandMap[trainKey] || {
+    phase: "record",
+    baseX: x
+  };
+
+  if (r.phase === "record") {
+    // 基準位置を記録するだけ
+    r.baseX = x;
+    r.phase = "check";
+  } else {
+  // check フェーズ
+  if (Math.abs(r.baseX - x) < 5) {
+    showRedBand = true;
+
+    // ★ 赤帯を出した場合は phase を維持
+    // 次の更新まで保持する
+  } else {
+    // 動いていたら記録フェーズへ戻す
+    r.phase = "record";
+  }
+}
+
+  redBandMap[trainKey] = r;
+  localStorage.setItem("redBandMap", JSON.stringify(redBandMap));
+}
+
+// ===============================
+// 赤帯描画
+// ===============================
+if (showRedBand) {
+  ctx.fillStyle = "red";
+  ctx.fillRect(leftX - 6, y - h/2, 6, h);
+  ctx.fillRect(leftX + totalW, y - h/2, 6, h);
+}
+
+    // ×印：10分以上不動（赤丸＋黒枠＋白×）
+if (crossMap[trainKey]) {
+  ctx.save();  // ← これが重要
+  
+  const r = 8; // 丸の半径
+  const cx = leftX - 20; // 列車枠から十分離す
+  const cy = y;
+
+  // 赤丸（塗り）
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = "red";
+  ctx.fill();
+
+ // ×印（太字）
+  ctx.fillStyle = "white";
+  ctx.font = "bold 15px monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("×", cx, cy);
+
+  ctx.restore(); // ← 状態を完全に戻す
+}
+    ctx.fillStyle = "white";
+    ctx.fillRect(leftX, y - h/2, totalW, h);
+
+    ctx.fillStyle = bg;
+    ctx.fillRect(leftX, y - h/2, noW, h);
+
+    ctx.fillStyle = noColor;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(noText, leftX + noW/2, y);
+
+    ctx.fillStyle = "black";
+    ctx.fillText(infoText, leftX + noW + infoW/2, y);
+
+    if (delayText) {
+      ctx.fillStyle = "red";
+      ctx.fillText(delayText, leftX + noW + infoW + delayW/2, y);
+    }
+  });
+}
+
+// ===============================
+async function update() {
+  // ★ 前景（列車）のみクリア
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // ★ 駅クリック領域だけは毎回再登録
+  stationHitAreas.length = 0;
+
+  // ★ 背景は描かない（drawBackground() は呼ばない）
+
+  // ★ 前回データで即描画（チラつき防止）
+  // ★ 前回データがある場合のみ描画
+if (lastTrains.length > 0) {
+  drawTrains(lastTrains);
+}
+
+  // ★ 最新データ取得
+  const trains = await fetchTrainData();
+
+  // ★ 上書き描画
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawTrains(trains);
+
+  document.getElementById("time").textContent =
+    "更新: " + new Date().toLocaleTimeString();
+}
+
+drawBackground();
+  // ★ 保存されているスクロール位置を復元
+const savedScroll = localStorage.getItem("scrollLeft");
+const sc = document.getElementById("scroll-container");
+
+if (savedScroll !== null) {
+  sc.scrollLeft = Number(savedScroll);
+} else {
+  // ★ 初期表示時は右端
+  sc.scrollLeft = sc.scrollWidth;
+}
+update();
+setInterval(update, 30000);
+</script>
+</body>
+</html>
