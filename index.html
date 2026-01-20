@@ -205,8 +205,8 @@ function isSpecialLtdExp(train) {
 function isThunderbirdEquivalent(train, from, to, sourceApi) {
   const suffix = getNoSuffix(train);
 
-  // --- JR難波(3002)～奈良(3020)
-  if (isBetween(from, to, "3002", "3020")) {
+// --- JR難波(3002)～奈良(3020)
+if (isInRange(from, to, 3002, 3020)) {
 
     // 例外：nickname まほろば → 通常
     if (train.nickname === "まほろば") return false;
@@ -221,8 +221,8 @@ function isThunderbirdEquivalent(train, from, to, sourceApi) {
     return !suffix.includes("K") && !suffix.includes("Y");
   }
 
-  // --- 奈良(3020)～笠置(3025)
-  if (isBetween(from, to, "3020", "3025")) {
+  // --- JR難波(3002)～奈良(3020)
+if (isInRange(from, to, 3002, 3020)) {
 
     // ※ nickname 条件は存在しない（今回の修正点）
 
@@ -275,9 +275,14 @@ function isLocalTrain(train) {
 // ===============================
 // 駅コード区間判定
 // ===============================
-function isBetween(from, to, a, b) {
-  return (from === a && to === b) || (from === b && to === a);
+function isInRange(from, to, min, max) {
+  const f = Number(from);
+  const t = Number(to);
+  const lo = Math.min(f, t);
+  const hi = Math.max(f, t);
+  return lo >= min && hi <= max;
 }
+
 
 function getTrackKey(train) {
   const last = getLastDigit(train);
@@ -550,4 +555,5 @@ setInterval(update, 30000);
 </script>
 </body>
 </html>
+
 
