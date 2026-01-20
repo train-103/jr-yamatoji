@@ -205,28 +205,21 @@ function isSpecialLtdExp(train) {
 function isThunderbirdEquivalent(train, from, to, sourceApi) {
   const suffix = getNoSuffix(train);
 
-// --- JR難波(3002)～奈良(3020)
-if (isInRange(from, to, 3002, 3020)) {
+  // --- JR難波(3002)～奈良(3020)
+  if (isInRange(from, to, 3002, 3020)) {
 
-    // 例外：nickname まほろば → 通常
     if (train.nickname === "まほろば") return false;
-
-    // 例外：特定列番 → 通常
     if (["5548M", "5854C"].includes(train.no)) return false;
-
-    // 例外：API
     if (sourceApi === "yamatojiosakahigashi") return false;
 
-    // K/Y がなければ TB 相当
+    // K / Y がなければ TB 相当
     return !suffix.includes("K") && !suffix.includes("Y");
   }
 
-  // --- JR難波(3002)～奈良(3020)
-if (isInRange(from, to, 3002, 3020)) {
+  // --- 奈良(3020)～笠置(3025)
+  if (isInRange(from, to, 3020, 3025)) {
 
-    // ※ nickname 条件は存在しない（今回の修正点）
-
-    // K/Y/M/D がなければ TB 相当
+    // K / Y / M / D がなければ TB 相当
     return !(
       suffix.includes("K") ||
       suffix.includes("Y") ||
@@ -235,7 +228,6 @@ if (isInRange(from, to, 3002, 3020)) {
     );
   }
 
-  // その他区間 → false（通常）
   return false;
 }
 
@@ -288,19 +280,20 @@ function getTrackKey(train) {
   const last = getLastDigit(train);
   if (last === null) return "up";
 
-  // ★ 区間別サンダーバード相当判定
-  if (isThunderbirdEquivalent(train, train.pos.split("_")[0], train.pos.split("_")[1], train.sourceApi)) {
+  const [from, toRaw] = train.pos.split("_");
+  const to = (toRaw === "####") ? from : toRaw;
+
+  if (isThunderbirdEquivalent(train, from, to, train.sourceApi)) {
     return (last % 2 === 1) ? "down" : "up";
   }
 
-  // ★ サンダーバード・ひだ
   if (isSpecialLtdExp(train)) {
     return (last % 2 === 1) ? "down" : "up";
   }
 
-  // ★ 通常ルール
   return (last % 2 === 1) ? "up" : "down";
 }
+
 // ===============================
 // 停滞管理（localStorage）
 // ===============================
@@ -555,5 +548,6 @@ setInterval(update, 30000);
 </script>
 </body>
 </html>
+
 
 
