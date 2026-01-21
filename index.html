@@ -250,12 +250,6 @@ function getNoSuffix(train) {
 }
 
 // ===============================
-// 停車中用：前回線路保持マップ【追加】
-// ===============================
-const lastTrackMap =
-  JSON.parse(localStorage.getItem("lastTrackMap") || "{}");
-
-// ===============================
 // 線路判定（複線・方向のみ）
 // ===============================
 function getLastDigit(train) {
@@ -309,19 +303,7 @@ function getTrackKey(train) {
   if (last === null) return "up";
 
   const [from, toRaw] = train.pos.split("_");
-  const isStationary = (toRaw === "####");
-
-  // ===============================
-  // ★ 停車中（####）→ 前回線路を使う
-  // ===============================
-  if (isStationary) {
-    const saved = lastTrackMap[train.no];
-    if (saved) return saved;
-  }
-
-  const to = isStationary ? from : toRaw;
-
-  let track;
+  const to = (toRaw === "####") ? from : toRaw;
 
   // ===============================
   // ★ 区間別サンダーバード相当
@@ -332,30 +314,11 @@ function getTrackKey(train) {
   // ===============================
   // ★ サンダーバード・ひだ
   // ===============================
-  } else if (isSpecialLtdExp(train)) {
-    track = (last % 2 === 1) ? "down" : "up";
-
-  // ===============================
-  // ★ 通常ルール
-  // ===============================
-  } else {
-    track = (last % 2 === 1) ? "up" : "down";
-  }
-
-  // ===============================
-  // ★ 走行中のみ前回線路を保存
-  // ===============================
-  if (!isStationary) {
-    lastTrackMap[train.no] = track;
-    localStorage.setItem(
-      "lastTrackMap",
-      JSON.stringify(lastTrackMap)
-    );
-  }
-
-  return track;
+if (isSpecialLtdExp(train)) { 
+  return (last % 2 === 1) ? "down" : "up";
 }
-
+return (last % 2 === 1) ? "up" : "down"; 
+}
 // ===============================
 // 停滞管理（localStorage）
 // ===============================
@@ -610,6 +573,7 @@ setInterval(update, 30000);
 </script>
 </body>
 </html>
+
 
 
 
