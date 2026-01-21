@@ -205,29 +205,31 @@ function isSpecialLtdExp(train) {
 function isThunderbirdEquivalent(train, from, to, sourceApi) {
   const suffix = getNoSuffix(train);
 
-  // --- JR難波(3002)～奈良(3020)
-  if (isInRange(from, to, 3002, 3020)) {
+// ===============================
+// 笠置 ～ 奈良（3025 ↔ 3020）
+// ===============================
+if (isBetweenStations(from, to, "3025", "3020")) {
 
-    if (train.nickname === "まほろば") return false;
-    if (["5548M", "5854C"].includes(train.no)) return false;
-    if (sourceApi === "yamatojiosakahigashi") return false;
+  // K / Y / M / D がなければ TB 相当
+  return !(
+    suffix.includes("K") ||
+    suffix.includes("Y") ||
+    suffix.includes("M") ||
+    suffix.includes("D")
+  );
+}
+// ===============================
+// 奈良 ～ JR難波（3020 ↔ 3002）
+// ===============================
+if (isBetweenStations(from, to, "3020", "3002")) {
 
-    // K / Y がなければ TB 相当
-    return !suffix.includes("K") && !suffix.includes("Y");
-  }
+  if (train.nickname === "まほろば") return false;
+  if (["5548M", "5854C"].includes(train.no)) return false;
+  if (sourceApi === "yamatojiosakahigashi") return false;
 
-  // --- 奈良(3020)～笠置(3025)
-  if (isInRange(from, to, 3020, 3025)) {
-
-    // K / Y / M / D がなければ TB 相当
-    return !(
-      suffix.includes("K") ||
-      suffix.includes("Y") ||
-      suffix.includes("M") ||
-      suffix.includes("D")
-    );
-  }
-
+  // K / Y がなければ TB 相当
+  return !suffix.includes("K") && !suffix.includes("Y");
+}
   return false;
 }
 
@@ -273,6 +275,27 @@ function isInRange(from, to, min, max) {
   const lo = Math.min(f, t);
   const hi = Math.max(f, t);
   return lo >= min && hi <= max;
+}
+
+// ===============================
+// 駅配列ベース区間判定（向き非依存）【追加】
+// ===============================
+function isBetweenStations(from, to, startCode, endCode) {
+  if (!from || !to || to === "####") return false;
+
+  const order = stations.map(s => s.code);
+
+  const fi = order.indexOf(from);
+  const ti = order.indexOf(to);
+  const si = order.indexOf(startCode);
+  const ei = order.indexOf(endCode);
+
+  if (fi < 0 || ti < 0 || si < 0 || ei < 0) return false;
+
+  const lo = Math.min(fi, ti);
+  const hi = Math.max(fi, ti);
+
+  return lo >= Math.min(si, ei) && hi <= Math.max(si, ei);
 }
 
 
@@ -548,6 +571,7 @@ setInterval(update, 30000);
 </script>
 </body>
 </html>
+
 
 
 
