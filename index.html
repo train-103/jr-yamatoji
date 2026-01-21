@@ -80,8 +80,6 @@ const stations = [
   {code: "3002", name: "JR難波", x: 13650},
 ];
 
-];
-
 const TRACK_MARGIN = 500;
 
 // ★ 複線仕様（旧 up2 / down1）
@@ -299,7 +297,6 @@ function isBetweenStations(from, to, startCode, endCode) {
   return lo >= Math.min(si, ei) && hi <= Math.max(si, ei);
 }
 
-
 function getTrackKey(train) {
   const last = getLastDigit(train);
   if (last === null) return "up";
@@ -307,20 +304,20 @@ function getTrackKey(train) {
   const [from, toRaw] = train.pos.split("_");
   const to = (toRaw === "####") ? from : toRaw;
 
-  // ===============================
   // ★ 区間別サンダーバード相当
-  // ===============================
   if (isThunderbirdEquivalent(train, from, to, train.sourceApi)) {
-    track = (last % 2 === 1) ? "down" : "up";
+    return (last % 2 === 1) ? "down" : "up";
+  }
 
-  // ===============================
   // ★ サンダーバード・ひだ
-  // ===============================
-if (isSpecialLtdExp(train)) { 
-  return (last % 2 === 1) ? "down" : "up";
+  if (isSpecialLtdExp(train)) { 
+    return (last % 2 === 1) ? "down" : "up";
+  }
+
+  // ★ 通常列車
+  return (last % 2 === 1) ? "up" : "down";
 }
-return (last % 2 === 1) ? "up" : "down"; 
-}
+
 // ===============================
 // 停滞管理（localStorage）
 // ===============================
@@ -575,6 +572,7 @@ setInterval(update, 30000);
 </script>
 </body>
 </html>
+
 
 
 
